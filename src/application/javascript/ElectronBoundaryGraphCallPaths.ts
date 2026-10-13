@@ -1,3 +1,4 @@
+import { electronCallPathMatchesIpc } from "../../domain/javascript/electronCallPathJoins.js";
 import type { ApplicationNode } from "../../domain/javascript/javascriptApplicationGraphSchemas.js";
 import type { ElectronCallPath } from "../../domain/javascript/electronStaticAnalysisTypes.js";
 import type { JavaScriptArtifactFile } from "../../domain/javascript/javascriptArtifactFiles.js";
@@ -10,7 +11,6 @@ import {
 import {
   addElectronInferenceEdge,
   electronFindingSourceNode,
-  electronRangeKey,
 } from "./ElectronBoundaryGraphContext.js";
 import {
   artifactLocalIdentity,
@@ -28,9 +28,10 @@ interface ProjectedPath {
 }
 
 /** Retain context-specific wrapper paths, then join only unique IPC records. */
-export const addElectronCallPaths = (
+export function* addElectronCallPaths(
   context: JavaScriptArtifactGraphContext,
-): void => {
+): Generator<void> {
+  let retained = 0;
   const projected: ProjectedPath[] = [];
   for (const { file, javascript } of context.analysis.files) {
     if (javascript === null) continue;
@@ -126,6 +127,7 @@ export const addElectronCallPaths = (
         });
       }
       projected.push({ file, path, coverage, nodes });
+      yield;
     }
   }
   for (const { transmission, handler } of unambiguousElectronIpcPairings(
@@ -162,32 +164,14 @@ export const addElectronCallPaths = (
             "The unique static channel match does not establish runtime registration, sender acceptance, or dispatch.",
           ],
         });
+        retained += 1;
+        if (retained % 128 === 0) yield;
       }
   }
-};
+}
 
 const matches = (
   projected: ProjectedPath,
   record: ElectronIpcRecord,
-): boolean => {
-  const { path } = projected;
-  const { finding } = record;
-  const invocation = finding.invocation_location;
-  const sourceStepKind =
-    finding.mode === "send" || finding.mode === "invoke" ? "terminal" : "ipc";
-  return (
-    projected.file.path === record.file.path &&
-    path.channel === finding.channel &&
-    path.steps.some(
-      (step) =>
-        step.kind === sourceStepKind &&
-        electronRangeKey(step.location) === electronRangeKey(finding.location),
-    ) &&
-    (invocation === undefined ||
-      path.steps.some(
-        (step) =>
-          (step.kind === "call" || step.kind === "exposure") &&
-          electronRangeKey(step.location) === electronRangeKey(invocation),
-      ))
-  );
-};
+): boolean =>
+  electronCallPathMatchesIpc(projected.file.path, projected.path, record);

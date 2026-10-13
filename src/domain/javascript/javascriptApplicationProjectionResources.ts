@@ -1,10 +1,17 @@
 import type { JavaScriptStaticAnalysis } from "./javascriptStaticAnalysisTypes.js";
+import {
+  estimateElectronCallPathJoinProjection,
+  summarizeElectronCallPathJoins,
+} from "./electronCallPathJoins.js";
 
 /** Forecast static-fact expansion into observations, nodes and relationships. */
 export const estimateJavaScriptStaticApplicationProjection = (
   facts: JavaScriptStaticAnalysis,
   checkpointBytes: number,
   sourcePath: string,
+  joinBytes = estimateElectronCallPathJoinProjection(
+    summarizeElectronCallPathJoins(facts, sourcePath),
+  ),
 ): number => {
   // A finding can produce a node, a separate observation and several edges.
   // Allow for identifiers, locations, authority, coverage and schema copies,
@@ -46,5 +53,8 @@ export const estimateJavaScriptStaticApplicationProjection = (
       2;
   }
   const metadataBytes = 2048 + Buffer.byteLength(sourcePath) * 4;
-  return (checkpointBytes * 4 + repeatedBytes + records * metadataBytes) * 8;
+  return (
+    (checkpointBytes * 4 + repeatedBytes + records * metadataBytes) * 8 +
+    joinBytes
+  );
 };

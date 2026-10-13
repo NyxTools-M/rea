@@ -5,11 +5,11 @@ import { addElectronWindowBoundaries } from "./ElectronBoundaryGraphWindows.js";
 import { addElectronCallPaths } from "./ElectronBoundaryGraphCallPaths.js";
 
 /** Add every static Electron process and security-boundary fact to the JAG. */
-export const addElectronBoundaries = (
+export function* addElectronBoundaries(
   context: JavaScriptArtifactGraphContext,
-): void => {
+): Generator<void> {
   addElectronWindowBoundaries(context);
   addElectronIpcBoundaries(context);
   addElectronNativeBoundaries(context);
-  addElectronCallPaths(context);
-};
+  yield* addElectronCallPaths(context);
+}
