@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as sourceMapDecoder from "../../../src/javascript/sourceMaps/DecodedSourceMap.js";
 
 import { fetchWebSourceMaps } from "../../../src/browser/WebSourceMapFetcher.js";
 import {
@@ -1418,6 +1419,64 @@ describe("expanded source-map evidence budget", () => {
     expect(result.items[0]?.limitation).toContain(
       "Resolved source-map identities exceed the 64 MiB decoder representation budget",
     );
+  });
+});
+
+describe("null-source decoder admission", () => {
+  it.each(["retained", "normalized-away"])(
+    "prices null declarations with a %s root before decoding",
+    async (rootKind) => {
+      const decode = vi.spyOn(
+        sourceMapDecoder,
+        "decodeValidatedSourceMapLeaves",
+      );
+      try {
+        const map = JSON.stringify({
+          version: 3,
+          names: [],
+          sourceRoot:
+            rootKind === "retained"
+              ? "x".repeat(1024 * 1024)
+              : "a/../".repeat(210_000),
+          sources: Array.from({ length: 65 }, () => null),
+          mappings: "",
+        });
+        const result = await fetchWebSourceMaps([request], input(), undefined, {
+          fetch: () => Promise.resolve(new Response(map, { status: 200 })),
+        });
+        expect(result.items[0]).toMatchObject({
+          status: "fetch_failed",
+          artifact: null,
+          original_sources: [],
+        });
+        expect(result.items[0]?.limitation).toContain(
+          "Resolved source-map identities exceed the 64 MiB decoder representation budget",
+        );
+        expect(decode).not.toHaveBeenCalled();
+      } finally {
+        decode.mockRestore();
+      }
+    },
+  );
+
+  it("preserves null and empty-string identities under a shared source root", async () => {
+    const map = JSON.stringify({
+      version: 3,
+      names: [],
+      sourceRoot: "../src/",
+      sources: [null, ""],
+      mappings: "AAAA,ACAA",
+    });
+    const result = await fetchWebSourceMaps([request], input(), undefined, {
+      fetch: () => Promise.resolve(new Response(map, { status: 200 })),
+    });
+    expect(
+      result.items[0]?.original_sources.map(({ source }) => source),
+    ).toEqual([null, `${origin}/src/`]);
+    expect(result.items[0]?.mappings.map(({ source }) => source)).toEqual([
+      null,
+      `${origin}/src/`,
+    ]);
   });
 });
 
