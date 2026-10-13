@@ -861,20 +861,30 @@ const preflightResolvedSourceBytes = (
       sourcesForRoot = new Map();
       resolvedByRoot.set(map.sourceRoot ?? null, sourcesForRoot);
     }
+    // Its resolver constructs sourceRoot + source for each declaration before
+    // normalization; a root that normalizes away still has a repeated cost.
+    const rootBytes =
+      Buffer.byteLength(map.sourceRoot ?? "", "utf8") +
+      (map.sourceRoot ? 1 : 0);
     for (const source of map.sources) {
       check();
-      if (source === null) continue;
-      const sourceKey = source;
+      // The pinned decoder resolves every slot, including null declarations.
+      // Null keeps its public identity but must pay for its resolved root.
+      const sourceKey = source ?? "";
       let resolved = sourcesForRoot.get(sourceKey);
       if (resolved === undefined)
         resolved = resolveSourceMapSource(source, map.sourceRoot, mapUrl);
-      const bytes = Buffer.byteLength(resolved, "utf8");
+      const bytes = Math.max(
+        Buffer.byteLength(resolved, "utf8"),
+        rootBytes + Buffer.byteLength(sourceKey, "utf8"),
+      );
       if (bytes > SOURCE_MAP_RESPONSE_BYTES - resolvedBytes)
         throw resolvedSourceLimitFailure();
       resolvedBytes += bytes;
       sourcesForRoot.set(sourceKey, resolved);
-      const sanitized = cachedSanitized(sanitizedByResolved, resolved);
-      estimate += jsonBytes(sanitized);
+      const sanitized =
+        source === null ? null : cachedSanitized(sanitizedByResolved, resolved);
+      estimate += sanitized === null ? 4 : jsonBytes(sanitized);
       if (estimate > WEB_SOURCE_MAP_LIMITS.outputBytes)
         throw expandedOutputFailure();
     }
