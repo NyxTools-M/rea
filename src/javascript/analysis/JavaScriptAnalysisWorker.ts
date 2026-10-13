@@ -8,6 +8,11 @@ import { z } from "zod";
 import type { JavaScriptArtifactFile } from "../../domain/javascript/javascriptArtifactFiles.js";
 import type { JavaScriptStaticAnalysis } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
 import { estimateJavaScriptStaticApplicationProjection } from "../../domain/javascript/javascriptApplicationProjectionResources.js";
+import {
+  estimateElectronCallPathJoinProjection,
+  summarizeElectronCallPathJoins,
+  type ElectronJoinSummary,
+} from "../../domain/javascript/electronCallPathJoins.js";
 import type { JavaScriptModuleSemanticIr } from "../../domain/javascript/javascriptModuleSemanticIr.js";
 import type { JavaScriptSemanticFileProjection } from "../../domain/javascript/javascriptSemanticFileProjection.js";
 import type {
@@ -79,6 +84,8 @@ export class JavaScriptAnalysisWorker {
   #phase = "startup";
   #lastFailure: AnalysisError | undefined;
   #estimatedRetainedBytes = 0;
+  #admittedElectronJoins: readonly ElectronJoinSummary[] = [];
+  #electronJoinBytes = 0;
   #applicationProjectionFailure: AnalysisResourceConstraintError | undefined;
   #parentCapacityExhausted = false;
   #sourcesRemaining: number | undefined;
@@ -598,15 +605,27 @@ export class JavaScriptAnalysisWorker {
     const retainedBytes = bytes * STATIC_CHECKPOINT_RETENTION_EXPANSION;
     this.#parentCapacityExhausted = retainedBytes > remaining;
     this.#estimatedRetainedBytes += retainedBytes;
+    // Later files can join paths admitted from earlier files. Charge the whole
+    // currently admitted pairing set, not only same-file Cartesian products.
+    const candidateJoins = [
+      ...this.#admittedElectronJoins,
+      ...summarizeElectronCallPathJoins(facts, sourcePath),
+    ];
+    const joinBytes = estimateElectronCallPathJoinProjection(candidateJoins);
     const expandedBytes = estimateJavaScriptStaticApplicationProjection(
       facts,
       bytes,
       sourcePath,
+      Math.max(0, joinBytes - this.#electronJoinBytes),
     );
     const availableResultBudget = this.#remainingResultBudget();
-    if (expandedBytes <= availableResultBudget)
+    if (expandedBytes <= availableResultBudget) {
       this.#estimatedRetainedBytes += expandedBytes;
-    else
+      this.#admittedElectronJoins = candidateJoins;
+      // No refund when later ambiguity removes possible edges: prior capacity
+      // was reserved conservatively, never allocated as an edge array here.
+      this.#electronJoinBytes = joinBytes;
+    } else
       this.#applicationProjectionFailure = new AnalysisResourceConstraintError(
         OPERATION,
         "memory",

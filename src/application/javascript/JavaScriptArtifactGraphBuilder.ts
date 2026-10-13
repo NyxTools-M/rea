@@ -130,7 +130,7 @@ function* buildJavaScriptArtifactGraphInputSteps(
     yield* addJavaScriptModuleRelationshipsSteps(projectionContext);
   const findingLimitations =
     yield* addJavaScriptStaticFindingsSteps(projectionContext);
-  addElectronBoundaries(projectionContext);
+  yield* addElectronBoundaries(projectionContext);
   yield;
   addJavaScriptHtmlRoles(projectionContext);
   yield;

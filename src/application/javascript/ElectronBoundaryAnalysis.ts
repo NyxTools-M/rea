@@ -1,4 +1,10 @@
 import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
+import {
+  classifyElectronIpcPairings as classifyPairings,
+  unambiguousElectronIpcPairings as uniquePairings,
+  isRendererTransmission,
+  isMainHandler,
+} from "../../domain/javascript/electronCallPathJoins.js";
 import type { ElectronIpcFinding } from "../../domain/javascript/electronStaticAnalysisTypes.js";
 import type { ElectronBoundarySummary } from "../../domain/javascript/javascriptApplicationAnalysis.js";
 import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
@@ -39,43 +45,13 @@ export const collectElectronIpcRecords = (
     )
     .sort((left, right) => compareUnicodeCodePoints(left.key, right.key));
 
-/** Match only exact literal channels and retain ambiguous matches separately. */
+/** Shared domain pairing semantics also drive parent resource admission. */
 export const classifyElectronIpcPairings = (
   records: readonly ElectronIpcRecord[],
-): readonly ElectronIpcPairingState[] => {
-  const handlers = records.filter(isMainHandler);
-  return records.filter(isPairableRendererTransmission).map((transmission) => {
-    const candidates =
-      transmission.finding.channel === null
-        ? []
-        : handlers.filter(
-            (handler) =>
-              handler.finding.channel === transmission.finding.channel &&
-              compatibleIpcModes(transmission.finding, handler.finding),
-          );
-    return {
-      transmission,
-      candidates,
-      status:
-        candidates.length === 1
-          ? "paired"
-          : candidates.length > 1
-            ? "ambiguous"
-            : "unpaired",
-    };
-  });
-};
-
-/** Return only pairings supported by one unique literal main handler. */
+): readonly ElectronIpcPairingState[] => classifyPairings(records);
 export const unambiguousElectronIpcPairings = (
   records: readonly ElectronIpcRecord[],
-): readonly ElectronIpcPairing[] =>
-  classifyElectronIpcPairings(records).flatMap((state) => {
-    const handler = state.candidates[0];
-    return state.status === "paired" && handler !== undefined
-      ? [{ transmission: state.transmission, handler }]
-      : [];
-  });
+): readonly ElectronIpcPairing[] => uniquePairings(records);
 
 /** Summarize static Electron findings without treating gaps as absence. */
 export const summarizeElectronBoundaries = (
@@ -175,27 +151,6 @@ export const summarizeElectronBoundaries = (
     ).length,
   };
 };
-
-const compatibleIpcModes = (
-  transmission: ElectronIpcFinding,
-  handler: ElectronIpcFinding,
-): boolean =>
-  transmission.mode === "invoke"
-    ? handler.mode === "handle"
-    : transmission.operation === "send-to-host"
-      ? false
-      : transmission.mode === "send" && handler.mode === "listen";
-
-const isRendererTransmission = ({ finding }: ElectronIpcRecord): boolean =>
-  finding.side === "renderer" &&
-  (finding.mode === "send" || finding.mode === "invoke");
-
-const isPairableRendererTransmission = (record: ElectronIpcRecord): boolean =>
-  isRendererTransmission(record) && record.finding.operation !== "send-to-host";
-
-const isMainHandler = ({ finding }: ElectronIpcRecord): boolean =>
-  finding.side === "main" &&
-  (finding.mode === "listen" || finding.mode === "handle");
 
 interface ResolveToFileInput {
   readonly file: JavaScriptArtifactFile;

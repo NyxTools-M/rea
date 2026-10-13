@@ -9,6 +9,50 @@ import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/j
 import { applicationFeatureTraceResultSchema } from "../../../src/domain/javascript/javascriptFeatureTraceSchemas.js";
 import { analyzeJavaScriptDirectory } from "../../support/cli/javascriptApplication.js";
 
+cliTest(
+  "admits ordinary paths but refuses cross-file Cartesian amplification under the parent budget",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-electron-join-budget-");
+    const sourceFiles = (count: number) => ({
+      "preload.js": `const e=require("electron");const sender=channel=>(...args)=>e.ipcRenderer.send(channel,...args);e.contextBridge.exposeInMainWorld("desktop",{${Array.from({ length: count }, (_, i) => `copy${String(i)}:sender("test:copy")`).join(",")}});`,
+      "main.js": `const e=require("electron");e.ipcMain.addListener("test:copy",event=>{if(allowed(event)){${Array.from({ length: count }, (_, i) => `event.sender.copy${String(i)}();`).join("")}}});`,
+    });
+    await writeFixtureFiles(root, sourceFiles(10));
+    const ordinary = await cli.run({
+      arguments: ["analyze-javascript-application", root, "--json"],
+      environment: { NODE_OPTIONS: "--max-old-space-size=384" },
+    });
+    expect(ordinary.exitCode).toBe(0);
+    const ordinaryResult = z
+      .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
+      .parse(ordinary.json).normalized_result;
+    expect(
+      ordinaryResult.graph.edges.filter(
+        (e) => e.evidence.extractor.operation === "join-electron-wrapper-paths",
+      ),
+    ).toHaveLength(100);
+    await writeFixtureFiles(root, sourceFiles(100));
+    const amplified = await cli.run({
+      arguments: ["analyze-javascript-application", root, "--json"],
+      environment: { NODE_OPTIONS: "--max-old-space-size=384" },
+    });
+    expect(amplified.exitCode).toBe(0);
+    const amplifiedResult = z
+      .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
+      .parse(amplified.json).normalized_result;
+    expect(amplifiedResult.graph.coverage.status).toBe("partial");
+    expect(
+      amplifiedResult.graph.edges.filter(
+        (e) => e.evidence.extractor.operation === "join-electron-wrapper-paths",
+      ),
+    ).toHaveLength(0);
+    expect(JSON.stringify(amplifiedResult)).toContain(
+      "application_projection_required_bytes",
+    );
+    expect(JSON.stringify(amplifiedResult)).toContain("copy99");
+  },
+);
+
 const analyze = async (cli: TestCli, extra = "") => {
   const root = await createTestTempDirectory("rea-electron-wrapped-paths-");
   await writeFixtureFiles(root, {
