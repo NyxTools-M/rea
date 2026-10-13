@@ -153,7 +153,7 @@ export const summarizeElectronCallPathJoins = (
   });
 };
 
-/** Retained schema/identity/evidence/serialization copies, at the existing8x
+/** Retained schema/identity/evidence/serialization copies, at the existing 8x
  * projection factor. Includes cross-file pairings and repeated handler guards. */
 export const estimateElectronCallPathJoinProjection = (
   records: readonly ElectronJoinSummary[],
