@@ -863,7 +863,9 @@ const preflightResolvedSourceBytes = (
     }
     // Its resolver constructs sourceRoot + source for each declaration before
     // normalization; a root that normalizes away still has a repeated cost.
-    const rootBytes = Buffer.byteLength(map.sourceRoot ?? "", "utf8");
+    const rootBytes =
+      Buffer.byteLength(map.sourceRoot ?? "", "utf8") +
+      (map.sourceRoot ? 1 : 0);
     for (const source of map.sources) {
       check();
       // The pinned decoder resolves every slot, including null declarations.
