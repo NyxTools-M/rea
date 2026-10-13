@@ -29,26 +29,38 @@ afterEach(async () => {
 describe("guided prompt completion from live analysis", () => {
   it("reads live documents and complete procedures without ambiguous names", async () => {
     const requests: Array<Readonly<Record<string, unknown>>> = [];
-    const session = createTestBinarySession(() => client(requests), {
-      resolveAnalysisProfile: () =>
-        Promise.resolve(
-          resultOk({
-            profile: createAnalysisProfile(
-              {
-                id: "fixture",
-                name: "Fixture analysis provider",
-                version: "1",
-              },
-              { fixture: true },
-            ),
-          }),
-        ),
-    });
+    let clientCreations = 0;
+    const session = createTestBinarySession(
+      () => {
+        clientCreations += 1;
+        return client(requests);
+      },
+      {
+        resolveAnalysisProfile: () =>
+          Promise.resolve(
+            resultOk({
+              profile: createAnalysisProfile(
+                {
+                  id: "fixture",
+                  name: "Fixture analysis provider",
+                  version: "1",
+                },
+                { fixture: true },
+              ),
+            }),
+          ),
+      },
+    );
     directory = await createTestTempDirectory("rea-prompt-completion-");
     const target = join(directory, "fixture.hop");
     await writeFile(target, "fixture");
     expect((await session.open(target)).ok).toBe(true);
     const completion = createPromptCompletionSource(session, session);
+    expect(await completion.complete("document", "app")).toEqual([]);
+    expect(clientCreations).toBe(0);
+    const ready = await session.execute("list_documents", {});
+    if (!ready.ok) throw ready.error;
+    expect(clientCreations).toBe(1);
 
     expect(await completion.complete("document", "app")).toEqual([
       "App",
@@ -285,6 +297,9 @@ const client = (
       );
     }
     return Promise.resolve(observed(null));
+  },
+  executeIfReady(operation, parameters, options) {
+    return this.execute(operation, parameters, options);
   },
   close: () => Promise.resolve(resultOk(null)),
 });
